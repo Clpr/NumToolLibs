@@ -58,7 +58,15 @@ Pmat = rand(50,50); for x in 1:50; Pmat[x,:] ./= sum(Pmat[x,:]); end;  # constru
 
 
 
-
+import EasyIO
+# -----------------
+# DEMO: create a time tagging to name files:
+# NOTE: it is useful when running the same model for many times
+# TIME: 10000 times: 0.030428 seconds (460.00 k allocations: 22.430 MiB, 8.55% gc time)
+# NOTE: 
+@time for x in 1:10000; EasyIO.timeTag(); end;
+print(string( "FileSample_", EasyIO.timeTag(), ".txt" ))
+# -----------------
 
 
 
