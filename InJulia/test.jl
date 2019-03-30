@@ -1,7 +1,7 @@
 # testing environment: Julia 1.0.1 on Intel i7-4710HQ, 12GB DDR3, Samsung SSD 860 EVO 250GB, GTX 850M
 
 using Revise  # for debugging
-push!(LOAD_PATH, "./")  # loading path
+push!(LOAD_PATH, "./")  # loading working directory to search paths
 
 import StochInt  # import our library of: stochastic process & integral
 
