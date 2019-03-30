@@ -4,7 +4,7 @@ This project is a collection of typical functions, types and/or classes in econo
 
 We expect to keep this project out of published/compiled libraries until they work stably.
 
-Collaborators: Zeqi Jin (Fordham U)
+Collaborators: [Zeqi Jin](https://github.com/Jinzeqi) (Fordham U)
 
 ## Sources
 
