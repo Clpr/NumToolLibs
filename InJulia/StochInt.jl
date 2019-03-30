@@ -8,6 +8,9 @@ StochInt is a collection of functions about stochastic integral. It consists of:
 4. solve_SS_MarkovChain_FUCK(): a fucking savage algorithm to compute steady state, through computing P^n for enough n degrees until a tolerance is met
 5. simu_MarkovChain(): generate samples of a Markov Chain, requires initial state (integer from 1,...,k; where k is the number of all states )
 
+And there are some non-export underlying functions:
+1. randDiscrete(): generate a random integer from a given discrete distribution, e.g. [0.1, 0.2, 0.4, 0.3] --> 2 from {1,2,3,4}
+
 
 There are some notes:
 1. I do not provide functions for Geometric Brownian Motion (GBM), because it can always be converted from a Brownian motion by exponentialization;
@@ -25,6 +28,48 @@ If any question or issue, please email to:
 module StochInt
 
 
+# ----------
+"""
+    randDiscrete( pVec::Vector{Float64} )
+
+generates a random integer based on a given discrete distribution.
+e.g. input a pVec = [0.3, 0.4, 0.3], select one element from {1,2,3},
+where {1,2,3} correspond to probabilities [0.3,0.4,0.3] in order.
+
+Receives:
+1. pVec::Vector{Float64}, discrete distribution function
+Returns:
+1. Res::Int, a random integer
+
+Timing:
+about 0.0015 seconds (10.00 k allocations: 1.068 MiB) for F = [0.1,0.2,0.3,0.4] per 10000 times;
+the testing is in main namespace, which is much slower than called by other functions in practice.
+
+
+Mathematics:
+for a discrete distribution like F = {1,...,k} -> [p1,...,pk] where sum(F) = 1.0,
+firstly generate a uniform random number R from [0,1] uniform distribution,
+then try to locate R between two probabilities pi & pj;
+"""
+randDiscrete( pVec::Vector{Float64} ) = begin
+    # validation
+    @assert( isapprox(1.0, sum(pVec)) , "requires a discrete distribution whose added probabilities is 1, but received $(sum(pVec))" )
+    # generate
+    local kState = length(pVec)
+    local pVecSum = insert!( cumsum(pVec), 1, -1E-8 )  # convert to CDF & add a first minor negative number (to avoid the branch for exact 0)
+    # to avoid the branch for exact 1
+    pVecSum[end] += 1E-8
+    local RndUnif = rand()  # generate a random number from [0,1] uniform distribution
+    local Res = 1::Int # result
+
+    while Res < kState  # totally compare T times (including in [0.0, p1])
+        if pVecSum[Res] <= RndUnif < pVecSum[Res + 1]
+            break
+        end
+        Res += 1
+    end
+    return Res::Int
+end # end function randDiscrete
 # ----------
 """
     simu_BM( T::Int ; N::Int = 1, mu::Float64 = 0.0, sigma::Float64 = 1.0 )
@@ -178,7 +223,7 @@ Retruns:
 (Actually, fuckingly naive but very simple & high performance!)
 """
 function solve_SS_MarkovChain_FUCK( Pmat::Array{Float64,2} ; atol::Float64 = 1E-6, maxiter::Int = 100 )
-    # assertion
+    # assertion (one-step transition matrix definition)
     local kState = size(Pmat)  # number of states
     local Pmat2 = copy(Pmat)  # temp variable
     @assert( kState[1] == kState[2], " requires an n*n Array{Float64,2} matrix but received a $(kState) $(typeof(Pmat)) " )
@@ -199,8 +244,37 @@ function solve_SS_MarkovChain_FUCK( Pmat::Array{Float64,2} ; atol::Float64 = 1E-
     return Res::Vector{Float64}
 end  # end function solve_SS_MarkovChain_FUCK
 # ----------------
+"""
+    simu_MarkovChain( Pmat::Matrix{Float64}, InitState::Int, T::Int )
 
+generates a random Markov Chain when given one-step transition matrix, an initial state and periods of time to simulate.
 
+Receives:
+1. Pmat::Matrix{Float64}, one-step transition probability matrix, where P{i,j} means the probability from state i to state j
+2. InitState::Int, initial state to start, from 1 to size(Pmat)[1] (row/column number of Pmat)
+3. T::Int, time periods to simulate, a finite positive integer
+Returns:
+1. Res::Vector{Int}, a simulated Markov Chain with length T
+Dependency [no external]:
+1. StochInt.randDiscrete(), generate a random integer from a given discrete distribution
+
+"""
+function simu_MarkovChain( Pmat::Matrix{Float64}, InitState::Int, T::Int )
+    # declare
+    local kState = size(Pmat)  # size of one-step transition matrix
+    local Res = [InitState]  # result, a Vector{Int}
+    # validation (one-step transition matrix definition)
+    @assert( kState[1] == kState[2], " requires an n*n Array{Float64,2} matrix but received a $(kState) $(typeof(Pmat)) " )
+    @assert( all( abs.(sum(Pmat, dims=2) .- 1.0) .< 1E-6 ), "not a one-step transition matrix, requires the sum of every row is one!")
+    # generate
+    for t in 1:T-1 # do not use 2:T to avoid bounding error
+        # select a discrete distribution from the transition matrix according to current state
+        # then randomly generate a new state
+        push!(Res, randDiscrete( Pmat[Res[end],:] ) )  # [:] auto squeezes the row-vector to a one-dimension vector
+    end
+    return Res::Vector{Int}
+end # end function simu_MarkovChain
+# -------------
 
 
 
