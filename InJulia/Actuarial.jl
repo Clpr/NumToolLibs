@@ -22,11 +22,11 @@ There are some non-export members:
 
 """
 module Actuarial
-    import Base  # explicitly import Base to reload basic operators
-    export cashflow, iscashflow, PV, FV, add, minus  # export generic methods
-    export StdAnnuity, CashFlow  # export types
+    import Base  # explicitly import Base to reload basic operators (such as +, -)
+    export cashflow, iscashflow, PV, FV, cfcompress  # export generic methods
+    export StdAnnuity, Payment, CashFlow  # export types
 
-# ---------------
+# ==================================
 # """
 #     LifeTable
 #
@@ -47,140 +47,252 @@ module Actuarial
 
 
 
-# ---------------
-CashFlow = Dict{Float64,Float64}  # define a CashFlow type, the synonym of Dict{Float64, Float64}
-# ---------------
+# ==================================
 """
-    iscashflow( CF::Any )
+    Payment( Time::Real, Payment::Real )
 
-checks if a variable is a valid CashFlow instance,
-returns a Bool, true for Yes, false for No;
+a synonym of Pair{Float64, Float64}, a "Time => Payment" relationship;
+the constructor can automatically convert input args to Float64;
+allows finite/infinite Time/Payment; please refer to the doc of CashFlow for more information;
 """
-iscashflow( CF::Any ) = begin
-    isa( CF, Dict{Float64,Float64} )  ||  return false::Bool
-    all( isfinite.(keys(CF)) )  ||  return false::Bool
-    all( isfinite.(values(CF)) )  ||  return false::Bool
-    return true::Bool
-end
-# ---------------
-"""
-    cashflow( Time::Vector{T} where T <: Real, Cash::Vector{T} where T <: Real )
-
-external constructor of a cash flow;
-in this module, we use Dict{Float64,Float64} to denote a cash flow;
-requires a vector of moments (time) and corresponding cash flow values (Cash),
-where duplicated time points are overwritten by the last one;
-does not allow infinite time;
-returns a cash flow in Dict{Float64,Float64} instance
-"""
-cashflow( Time::Vector{T} where T <: Real, Cash::Vector{T} where T <: Real ) = begin
-    length(Time) == length(Cash)  ||  error("Time must be with the same length with Cash")
-    local Res = [];
-    for x in zip(Time,Cash)
-        ( isfinite(x[1]) & isfinite(x[2]) )  ?  push!( Res, ( Float64(x[1]), Float64(x[2]) ) )  :  error("infinite time found in Time or Cash: $(x)")
-    end
-    return Dict{Float64,Float64}(Res::Vector)
-end  #  end function cashflow
-"""
-    cashflow( OriDict::Dict{T,T} where T <: Real )
-
-standarizes a cash flow from a dictionary
-returns a cash flow in Dict{Float64,Float64} instance
-"""
-cashflow( OriDict::Dict{T,T} where T <: Real ) = begin
-    local Res = [];
-    for x in OriDict
-        if isfinite(x[1]) & isfinite(x[2])
-            push!(Res, ( Float64(x[2]), Float64(x[2]) ) )
-        end
-    end
-    return Dict{Float64,Float64}(Res::Vector)
-end  #  end function cashflow
-# --------------
+Payment = Pair{Float64, Float64}
+# --------------- Atomic Operations
+# NOTE: overloads basic Arithmetical operators for Payment
+# NOTE: two payments cannot be added, so, no def for + & -
+Base.:-( pay::Payment ) = Payment( pay.first, - pay.second )  # but it can be negative!
+Base.:*( pay::Payment, k::Real ) = Payment( pay.first, Float64(k * pay.second) )
+Base.:*( k::Real, pay::Payment ) = Payment( pay.first, Float64(k * pay.second) )  # exchange-able principle does not always stand, needs to define it manually
+Base.:/( pay::Payment, k::Real ) = Payment( pay.first, Float64(pay.second / k) )
+Base.:/( k::Real, pay::Payment ) = Payment( pay.first, Float64(k / pay.second) )
 """
     PV( CF::CashFlow, IntRate::Float64 ; DiscountTo::Union{Int,Float64} = 0.0, IsDiscrete::Bool = false )
+
+computes given payment's present value at a finite moment DiscountTo::Float64;
+
+Receives:
+1. CF::Payment, a given payment
+2. IntRate::Float64, a constant interest rate to discount at, >= 0
+3. DiscountTo::Real, the moment to discount to, 0.0 by default
+4. IsDiscrete::Bool, how to deal with the non-integer (digit) part of period, true by default
+Returns:
+1. Res::Float64, PV of the given payment
+
+Mathematics:
+1. if IsDiscrete is false, uses exponential discounting: `` {PV} = \\exp(-rt) ``, where r is IntRate
+2. if IsDiscrete is true, uses linear interpolation to discount inner-period (non-integer, digit) part: `` {PV}_{t=1} = {PV}_{t=1.25} / ( 1 + r * 0.25 ) ``, where r is IntRate
+3. for infinite time/payment, we have principles (we use (time,payment) to denote a Payment):
+    1. we use R to denote finite real number
+    1. non-zero R = finite DiscountTo + one of: (R,R)
+    2. zero = finite DiscountTo + one of: (Inf,R)
+    3. Inf = finite DiscountTo + one of: (-Inf,Inf), (R,Inf)
+    5. -Inf = finite DiscountTo + one of: (R,-Inf),(-Inf,-Inf)
+    6. NaN = finite DiscountTo + one of: (Inf,Inf),(Inf,-Inf),(-Inf,R)
+"""
+PV( CF::Payment, IntRate::Float64 ; DiscountTo::Real = 0.0, IsDiscrete::Bool = true ) = begin
+    # valid & declare
+    isfinite(DiscountTo)  ||  error("expects a finite DiscountTo but received: $(DiscountTo)")
+    IntRate >= 0.0  ||  error("expects a non-negative interest rate but received: $(IntRate)")
+    # compute
+    if isfinite(CF.first) & isfinite(CF.second)
+        if IsDiscrete
+            # first, discount proportional part to the floor-integer
+            TmpVal = CF.second / ( 1.0 + IntRate * ( CF.first - floor(CF.first) ) )
+            # then, discount it to floor(DiscountTo) moment
+            TmpVal /= ( 1.0 + IntRate ) ^ ( floor(CF.first) - floor(DiscountTo) )
+            # finally, discount to proportional DiscountTo moment
+            Res = TmpVal * ( 1.0 + IntRate * ( DiscountTo - floor(DiscountTo) ) )
+            return Res::Float64
+        else
+            Res = CF.second * exp( IntRate * ( DiscountTo - CF.first ) )
+            return Res::Float64
+        end
+    elseif CF.first == Inf & isfinite(CF.second)
+        return 0.0::Float64
+    elseif ( CF.first == -Inf & CF.second == Inf ) | ( isfinite(CF.first) & CF.second == Inf )
+        return Inf::Float64
+    elseif ( isfinite(CF.first) & CF.second == -Inf ) | ( CF.first == -Inf & CF.second == -Inf )
+        return -Inf::Float64
+    else
+        return NaN::Float64
+    end
+end # end functio PV
+# ==================================
+"""
+    CashFlow
+
+a synonym of Vector{Pair{Float64,Float64}},
+whose element is (Time, Signed Payment);
+denotes a series of money flows at different moments;
+allows duplicated time/moments unless concise() it;
+
+Mathematics:
+1. The domain of Time is: {-Inf,R,Inf}, where R is finite real number
+2. The domain of Money is: {-Inf,R,Inf}
+3. then we define (mathematically) some operations on a single CashFlow
+3. the principles of PV, please refer to the documentation of type Payment
+"""
+CashFlow = Vector{Payment}
+# ----------------- Type Assertion
+"""
+    iscashflow( Obj::Any )
+
+checks if an instance is one of CashFlow
+"""
+iscashflow( Obj::Any ) = isa( Obj, CashFlow )
+# ----------------- Constructors
+cashflow( Time::Real, Cash::Real ) = [Payment( Time, Cash )]
+cashflow( Time::Real, Cash::Union{AbstractRange, Vector{T} where T <: Real} ) = begin
+    local Res = CashFlow()  # initilize an instance to return
+    for x in Cash; push!( Res, Payment( Time, x ) ); end;  # push new (time, payment) pairs to Res::CashFlow
+    return Res::CashFlow
+end
+cashflow( Time::Union{AbstractRange, Vector{T} where T <: Real}, Cash::Real ) = begin
+    local Res = CashFlow()
+    for x in Time; push!( Res, Payment( x, Cash ) ); end;
+    return Res::CashFlow
+end
+"""
+    cashflow( Time::Vector{T} where T <: Real, Payment::Vector{T} where T <: Real )
+
+creates a CashFlow from two vectors: one for time/moments, one for payments;
+returns a CashFlow instance;
+duplicated time/moments allowed;
+"""
+cashflow( Time::Union{AbstractRange, Vector{T} where T <: Real}, Cash::Union{AbstractRange, Vector{T} where T <: Real} ) = begin
+    # valid & declare
+    local T = length(Time)  # size of the cash flow
+    T == length(Cash)  ||  error("expects two equal-length vectors but received: ( $(T), $(length(Cash)) )")
+    local Res = CashFlow()  # initilize an instance to return
+    for t in 1:T
+        push!( Res, Payment( Time[t], Cash[t] ) )
+    end
+    return Res::CashFlow
+end  # end function cashflow()
+"""
+    cashflow( TimeCash::Matrix{T} where T <: Real )
+
+creates a CashFlow from a T*2 matrix (synonym of Array{T,2}),
+where the first column is time/moments of each payment,
+and the second column is payment amounts;
+returns a CashFlow;
+"""
+cashflow( TimeCash::Matrix{T} where T <: Real ) = begin
+    # valid & declare
+    local T = size(TimeCash)  # size of the given matrix
+    T[2] == 2  ||  error("expects a T*2 matrix but received: $(T)")
+    local Res = CashFlow()
+    for t in 1:T[1]; push!( Res, Payment( TimeCash[t,1], TimeCash[t,2] ) ); end;
+    return Res::CashFlow
+end  # end function cashflow()
+"""
+    cashflow( Time2Cash::Dict{T,T} where T <: Real )
+
+creates a CashFlow from a number-to-number Dict (Hash table),
+where the keys are time/moments of each payment,
+and the values are payment amounts;
+returns a CashFlow;
+"""
+cashflow( Time2Cash::Dict{T,T} where T <: Real ) = begin
+    # valid & declare
+    local Res = CashFlow()
+    for x in Time2Cash; push!( Res, Payment( x.first, x.second ) ); end;
+    return Res::CashFlow
+end  # end function cashflow()
+# ----------------- Operations
+"""
+    PV( CF::CashFlow, IntRate::Float64 ; DiscountTo::Union{Int,Float64} = 0.0, IsDiscrete::Bool = true )
+
 
 computes the present value of a CashFlow at time CountTo::Union{Int,Float64} at a constant non-negative interest rate IntRate::Float64;
 
 Receives:
 1. CF::CashFlow, cash flow to discount
-2. IntRate::Float64, a constant interest rate to discount, in digit rather than percentage
+2. IntRate::Float64, a constant interest rate to discount, >=0, in digit rather than percentage
 3. DiscountTo::Union{Int,Float64}, the moment to discount to
-4. IsDiscrete::Bool, to discount as a discrete cash flow or a continuous cash flow, fasle by default
-
+4. IsDiscrete::Bool, to discount as a discrete cash flow or a continuous cash flow, true by default
+Returns:
+1. Res::Float64, PV of the given cash flow
+Depends on:
+1. PV()
 
 Note:
 1. when IsDiscrete is false, money is discounted as `` PV = \\exp( - r (t-t_0) ) ``
 1. when IsDiscrete is true, inner-year part is discounted at linear interpolation, e.g.
 `` \\text{PV}_{t=1} = \\text{FV}_{t=1.23} \\cdot \\frac{1}{1+ 10% \\cdot 0.23 } ``
 """
-function PV( CF::CashFlow, IntRate::Float64 ; DiscountTo::Union{Int,Float64} = 0.0, IsDiscrete::Bool = false )
-    # validation
-    iscashflow(CF)  ||  error("expects a valid CashFlow instance")
-    isfinite(DiscountTo)  ||  error("expects a finite CountTo but receives $(CountTO)")
-    IntRate >= 0.0  ||  error("expects a non-negative interest rate but receives: $(IntRate)")
-    # declare
-    local Res::Float64 = 0.0  # summed PV
-    local TmpVal::Float64  # temporary value
+function PV( CF::CashFlow, IntRate::Float64 ; DiscountTo::Real = 0.0, IsDiscrete::Bool = true )
+    # NOTE: validations are did inside PV(::Payment,...)
+    local Res::Float64 = 0.0  # result
     # compute
-    if IsDiscrete  # case: discrete discounting, period by period
-        for (Time,Money) in CF
-            # first, discount proportional part to the floor-integer
-            TmpVal = Money / ( 1.0 + IntRate * ( Time - floor(Time) ) )
-            # then, discount it to floor(DiscountTo) moment
-            TmpVal /= ( 1.0 + IntRate ) ^ ( floor(Time) - floor(DiscountTo) )
-            # finally, discount to proportional DiscountTo moment
-            Res += TmpVal * ( 1.0 + IntRate * ( DiscountTo - floor(DiscountTo) ) )
-        end
-    else  # case: continuous discounting, exponential
-        for (Time,Money) in CF
-            Res += Money * exp( IntRate * ( DiscountTo - Time ) )
-        end
+    for tmppayment in CF
+        Res += PV( tmppayment, IntRate, DiscountTo = DiscountTo, IsDiscrete = IsDiscrete )
     end
     return Res::Float64
-end  # end function PV
-# --------------
+end # end function PV
+# ----------------- Arithmetical Operations
+# NOTE: + & - on CashFlow are set-level operations, not on element (Payment)
+# NOTE: but - (get negative sign) works on single Payment
+# NOTE: * & / are defined at element-level, not on set-level (CashFlow), please use .* and ./
 """
-    add( CFa::CashFlow, CFb::CashFlow )
+    Base.:+( cfa::CashFlow, cfb::CashFlow )
 
-the addition between two CashFlow,
-where cash flows at the same moment are added
+overloads addition (+) for CashFlow;
+it is a kind of set operation (not defined on element!);
+two CashFlow are unioned, where payments with different payment amounts but at the same moments are all kept;
+and only one kept for those the same (time = time, amount = amount) Payments;
+returns a new CashFlow instance;
 """
-add( CFa::CashFlow, CFb::CashFlow ) = begin
-    # no validation, auto neglect all Inf values
-    local CFsum = CashFlow()
-    local NewKeys::Set = union( keys(CFa), keys(CFb) )  # a union set of the two CashFlow's keys
-    local tmpa::Float64, tmpb::Float64  # two temporary variables, declared here to save memories
-    # compute by members
-    for x in NewKeys
-        tmpa = haskey(CFa, x)  ?  CFa[x]  :  0.0
-        tmpb = haskey(CFb, x)  ?  CFb[x]  :  0.0
-        CFsum[x] = tmpa + tmpb
-    end
-    return CFsum::CashFlow
-end  # end function add
-# --------------
+Base.:+( cfa::CashFlow, cfb::CashFlow ) = union( cfa, cfb )
 """
-    minus( CFa::CashFlow, CFb::CashFlow )
+    Base.:-( cfa::CashFlow, cfb::CashFlow )
 
-the minus between two CashFlow, CFa - CFb; order matters;
+overloads minus (-) for CashFlows;
+it is a kind of set operation (not defined on element!);
+payments in cfb has opposite signs then added to cfa;
+returns a new CashFlow instance;
 """
-minus( CFa::CashFlow, CFb::CashFlow ) = begin
-    # no validation, auto neglect all Inf values
-    local CFminus = CashFlow()
-    local NewKeys::Set = union( keys(CFa), keys(CFb) )  # a union set of the two CashFlow's keys
-    local tmpa::Float64, tmpb::Float64  # two temporary variables, declared here to save memories
-    # compute by members
-    for x in NewKeys
-        tmpa = haskey(CFa, x)  ?  CFa[x]  :  0.0
-        tmpb = haskey(CFb, x)  ?  CFb[x]  :  0.0
-        CFminus[x] = tmpa - tmpb
-    end
-    return CFminus::CashFlow
-end  # end function minus
-# ---------------
+Base.:-( cfa::CashFlow, cfb::CashFlow ) = begin
+    return ( cfa + ( .- cfb ) )::CashFlow
+end  # end function -
+# ----------------- Collection Operations
+"""
+    Base.cfcompress( cf::CashFlow )
 
-# ---------------
+compresses a cash flow, summing all duplicated records (same time but different payment amount),
+and dropping zero payments (payment == 0);
+returns a CashFlow with unique members;
+"""
+function cfcompress( cf::CashFlow )
+    # declare
+    local Res::CashFlow = CashFlow()
+    #
+
+
+end # end function unique
+
+
+
+# gettimes, getpayments
+# isfinite(::Payment)
+
+
+
+
+
+
+
+
+
+
+
+# ==================================
+"""
+    AbstractAnnuity
+
+a super abstract type for different annuities
+"""
+abstract type AbstractAnnuity <: Any end
+# --------------------
 """
     StdAnnuity
 
@@ -194,7 +306,7 @@ Note:
 1. deferred & expired annuity can be easily computed through functions, no need to define in a type;
 2. you can always construct a generic multi-inyear-payment annuity with standard annuities like constructing a portfolio!
 """
-struct StdAnnuity
+struct StdAnnuity <: AbstractAnnuity
     IsFinite::Bool  # type of annuity, true for finite, false for infinite
     IsDue::Bool  # if it is a Annuity Due (pays at the beginning of period); true for Annuity Due, false for Ordinary Annuity (pays at the end of period)
     T::Int  # period number, only works when IsFinite == true
