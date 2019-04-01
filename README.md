@@ -15,6 +15,7 @@ Nowadays (Spring 2019), the project is expected to cover:
 3. **EasyMetrics**: a collection of decorating functions on existing popular statistical/econometric libraries (e.g. GLM in Julia). This library works to provide more economist-style APIs & result display for scholars.
 4. **ConvFuncs**: a collection of conventional "pure" functions in research, e.g. CD function, CRRA, CES, annuity, insurance pricing.
 5. **EasyIO**: a collection of input-output methods which significantly simplifies the I/O process. e.g. time tagging, dictionary to a multi-sheet excel file.
+6. **Actuarial**: a collection of basic actuarial science types & methods, including annuity, life insurance, non-life insurance, life table data, simulation etc. The Julia realization works with the standard library *Distributions* (for non-life insurances).
 
 ## Requirements
 

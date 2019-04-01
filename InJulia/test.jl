@@ -3,8 +3,9 @@
 using Revise  # for debugging
 push!(LOAD_PATH, "./")  # loading working directory to search paths
 
-import StochInt  # import our library of: stochastic process & integral
 
+
+import StochInt  # import our library of: stochastic process & integral
 # -------------
 # DEMO: generate (discretized) daily stock returns with Brownian motion
 # NOTE: usually, returns are estimated in percentages rather than digits
@@ -50,7 +51,7 @@ Pmat = rand(50,50); for x in 1:50; Pmat[x,:] ./= sum(Pmat[x,:]); end;  # constru
     Pmat, # one-step transition matrix, an Array{Float64,2}
     2,  # initial state to start simulation, from 1 ~ 50
     100, # periods to generate
- )
+)
 
 
 
@@ -58,15 +59,35 @@ Pmat = rand(50,50); for x in 1:50; Pmat[x,:] ./= sum(Pmat[x,:]); end;  # constru
 
 
 
-import EasyIO
+import EasyIO  # import our library: easy I/O process
 # -----------------
 # DEMO: create a time tagging to name files:
 # NOTE: it is useful when running the same model for many times
 # TIME: 10000 times: 0.030428 seconds (460.00 k allocations: 22.430 MiB, 8.55% gc time)
-# NOTE: 
+# NOTE:
 @time for x in 1:10000; EasyIO.timeTag(); end;
 print(string( "FileSample_", EasyIO.timeTag(), ".txt" ))
 # -----------------
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
