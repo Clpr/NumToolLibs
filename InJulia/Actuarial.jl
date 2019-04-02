@@ -26,23 +26,7 @@ module Actuarial
     export cashflow, iscashflow, PV, FV, items, cfcompress  # export generic methods
     export StdAnnuity, Payment, CashFlow  # export types
 
-# ==================================
-# """
-#     LifeTable
-#
-# type/template for life tables, it is defined from age 0 to age Xmax,
-# it has members:
-# 1. Xmax::Int, the maximum age to live, equals 105 by default
-# 1. q::Vector{Float64}, q_{x}, mortality in digit, from age x to age x+1, a vector with length 101 (age 0 to age 100)
-# """
-# struct LifeTable
-#     Xmax::Int  # the maximum age to live, equals 105 by default
-#     q::Vector{Float64}  # q_{x}, mortality in digit, from age x to age x+1
-#     L::Vector{Float64}  # L_{x},
-#
-#
-# end  # end struct LifeTable
-# ---------------
+
 
 
 
@@ -432,6 +416,59 @@ Note:
 """
 FV( a::StdAnnuity ; AnnuityStartTime::Int = 0 ) = a.IsFinite  ?  AnnuityValue( a, AnnuityStartTime = AnnuityStartTime, DiscountTo = AnnuityStartTime + a.T )  :  error("final value is only defined on finite annuity")
 # ----------------
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# ==================================
+# """
+#     LifeTable
+#
+# type/template for life tables, it is defined from age 0 to age Xmax,
+# it has members:
+# 1. Xmax::Int, the maximum age to live, equals 105 by default
+# 1. q::Vector{Float64}, q_{x}, mortality in digit, from age x to age x+1, a vector with length 101 (age 0 to age 100)
+# """
+# struct LifeTable
+#     Xmax::Int  # the maximum age to live, equals 105 by default
+#     q::Vector{Float64}  # q_{x}, mortality in digit, from age x to age x+1
+#     L::Vector{Float64}  # L_{x},
+#
+#
+# end  # end struct LifeTable
+# ---------------
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
