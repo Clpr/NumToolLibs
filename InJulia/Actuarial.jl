@@ -23,7 +23,7 @@ There are some non-export members:
 """
 module Actuarial
     import Base  # explicitly import Base to reload basic operators (such as +, -)
-    export cashflow, iscashflow, PV, FV, cfcompress  # export generic methods
+    export cashflow, iscashflow, PV, FV, items, cfcompress  # export generic methods
     export StdAnnuity, Payment, CashFlow  # export types
 
 # ==================================
@@ -64,6 +64,10 @@ Base.:*( pay::Payment, k::Real ) = Payment( pay.first, Float64(k * pay.second) )
 Base.:*( k::Real, pay::Payment ) = Payment( pay.first, Float64(k * pay.second) )  # exchange-able principle does not always stand, needs to define it manually
 Base.:/( pay::Payment, k::Real ) = Payment( pay.first, Float64(pay.second / k) )
 Base.:/( k::Real, pay::Payment ) = Payment( pay.first, Float64(k / pay.second) )
+# --------------- Type Assertion
+Base.isfinite( pay::Payment ) = ( isinf(pay.first) | isinf(pay.second) )  ?  (return false::Bool) : (return true::Bool)
+Base.isinf( pay::Payment ) = ( isinf(pay.first) | isinf(pay.second) )  ?  (return true::Bool) : (return false::Bool)
+# --------------- Operations
 """
     PV( CF::CashFlow, IntRate::Float64 ; DiscountTo::Union{Int,Float64} = 0.0, IsDiscrete::Bool = false )
 
@@ -237,12 +241,11 @@ end # end function PV
     Base.:+( cfa::CashFlow, cfb::CashFlow )
 
 overloads addition (+) for CashFlow;
-it is a kind of set operation (not defined on element!);
-two CashFlow are unioned, where payments with different payment amounts but at the same moments are all kept;
-and only one kept for those the same (time = time, amount = amount) Payments;
+it is a kind of collection-level operation (not defined on element!);
+two CashFlow are connected, where payments with different payment amounts but at the same moments are all kept;
 returns a new CashFlow instance;
 """
-Base.:+( cfa::CashFlow, cfb::CashFlow ) = union( cfa, cfb )
+Base.:+( cfa::CashFlow, cfb::CashFlow ) = cat( cfa, cfb , dims = 1)
 """
     Base.:-( cfa::CashFlow, cfb::CashFlow )
 
@@ -256,31 +259,66 @@ Base.:-( cfa::CashFlow, cfb::CashFlow ) = begin
 end  # end function -
 # ----------------- Collection Operations
 """
+    Base.keys( cf::CashFlow )
+
+overloads keys() which extracts all time (Payment.first) tags as a vector;
+orders are kept;
+returns a Vector{Float64};
+"""
+function Base.keys( cf::CashFlow )
+    local Res::Vector{Float64} = Vector{Float64}()
+    for x in cf; push!( Res, x.first ); end
+    return Res::Vector{Float64}
+end  # end function Base.keys
+"""
+    Base.values( cf::CashFlow )
+
+overloads values() which extracts all payment amount (Payment.second) tags as a vector;
+orders are kept;
+returns a Vector{Float64};
+"""
+function Base.values( cf::CashFlow )
+    local Res::Vector{Float64} = Vector{Float64}()
+    for x in cf; push!( Res, x.second ); end
+    return Res::Vector{Float64}
+end  # end function Base.values
+"""
+    items( cf::CashFlow ; sorted = false )
+
+defines a convenient Py-style method to extract the keys and values of a given cash flow at the same time;
+returns a Tuple{Vector{Float64},Vector{Float64}},
+where the first element is keys vector, the second is values vector;
+"""
+items( cf::CashFlow ; sorted = false ) = begin
+    local Res::Tuple{Vector{Float64},Vector{Float64}} = sorted ? ( keys(sort(cf)), values(sort(cf)) )  :  ( keys(cf), values(cf) )
+    return Res::Tuple{Vector{Float64},Vector{Float64}}
+end # end function Base.items
+"""
     Base.cfcompress( cf::CashFlow )
 
 compresses a cash flow, summing all duplicated records (same time but different payment amount),
 and dropping zero payments (payment == 0);
 returns a CashFlow with unique members;
+
+Depends on:
+1. Base.keys(): overloaded
 """
 function cfcompress( cf::CashFlow )
     # declare
-    local Res::CashFlow = CashFlow()
-    #
-
-
+    local UniqKeys::Vector{Float64} = unique(keys(cf))  # get unique keys for new cash flow
+    # new a new CashFlow with all-zero payment amounts but unique keys
+    # NOTE: it can always be safely converted to a Dict because keys are unique now
+    # NOTE: when converted to a Dict, we can use Res[keys] to safely index records
+    # NOTE: according to our definition, a Dict{Float64,Float64} can always be converted a CashFlow
+    local Res = Dict{Float64,Float64}( cashflow( UniqKeys, 0.0 ) )
+    # compute, NOTE: because we have 0.0 as bases, now it is easy to just add (possible duplicated) values to their new locations
+    for x in cf
+        Res[x.first] += x.second
+    end
+    # finally, converted Res to a CashFlow and return
+    return cashflow( Res )::CashFlow
 end # end function unique
-
-
-
-# gettimes, getpayments
-# isfinite(::Payment)
-
-
-
-
-
-
-
+# -----------------------------
 
 
 
