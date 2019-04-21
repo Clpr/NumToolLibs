@@ -12,6 +12,9 @@ including:
 
 Depends on:
 1. Distributions: std lib
+2. Random: std lib
+3. LinearAlgebra: std lib
+4. StatsBase: std lib
 
 
 
@@ -104,6 +107,11 @@ returns:
 depends on:
 1. invcdf(), of course, equivalent to Distributions.quantile()
 2. Random.shuffle(), shuffles samples
+timing:
+1. benchmark: Intel Core i7 6700 3.40GHz, SATA3.0, no SSD, 16G DDR3
+2. code: @time eval(:( D = Distributions.Normal(0.0,1.0); NovDist.LatinHyperCube(D,100,100); ) );
+3. about: 0.000943 seconds (76 allocations: 160.938 KiB)
+4. about: sample mu = -0.0005; sigma = 0.99803
 """
 function LatinHyperCube( D::Distributions.UnivariateDistribution, N::Int, P::Int )
     # validation
@@ -133,9 +141,9 @@ requires:
 returns:
 1. Ret::Matrix{Float64}, a sampling vector with N * P rows and Distributions.dim(D) columns; each row is a sample point
 depends on:
-1. Random.randperm(), shuffles columns
 2. LinearAlgebra.cholesky(), Cholesky decomposition
 3. rrank == StatsBase.ordinalrank(), ranks of a vector
+4. LatinHyperCube( D::Distributions.UnivariateDistribution, N::Int, P::Int )
 timing:
 1. benchmark: Intel Core i7 6700 3.40GHz, SATA3.0, no SSD, 16G DDR3
 2. code: @time eval(:( D = Distributions.MvNormal(rand(5),rand(5)); NovDist.LatinHyperCube(D,100,100); ) );
@@ -149,53 +157,42 @@ reference:
 function LatinHyperCube( D::Distributions.AbstractMvNormal, N::Int, P::Int )
     # validation
 	@assert( (N > 0) & (P > 0), "requries N,P > 0 but received: $(N) and $(P)" )
+
 	# sampling in N divided Uniform(0,1)
 	# NOTE: sampling N*P points in ONE Uniform(0,1) on EACH dimension
 	local Ddim::Int = Distributions.dim( D.Σ )  # dim of D
 	local Res::Matrix{Float64} = rand( Float64, N * P, Ddim )
 	# NOTE: using Int for less memoery cost & easy indexing
-	local Rnk0::Matrix{Int} = zeros( Int, N * P, Ddim )  # (row) ranks of each column for Res without correlation
+	# NOTE: in practice, we do not need to declare a W0
 	local Rnk1::Matrix{Int} = zeros( Int, N * P, Ddim )  # (row) ranks of each column for Res with correlation
-	local EachDimStd = sqrt.( LinearAlgebra.diag( D.Σ ) )  # std on each dim
+	local EachDimStd = sqrt.( LinearAlgebra.diag( D.Σ ) )  # std of each marginal distribution
+
 	# loop to re-scale & inverse to a MvNormal without correlation (each dim is independent)
-	for x in 0:N-1
-        for y in 1:P
-			for z in 1:Ddim
-			# re-scale to a new Uniform & inverse prob to a point
-            Res[ x * P + y, z ] = Distributions.quantile(
-				Distributions.Normal( D.μ[z], EachDimStd[z] ) ,
-				(Res[ x * P + y, z ] + x) / N
-			)
-			end
-		end
-    end
-	# shuffle each column & record ranks (ascending order)
+	# NOTE: just use our LatinHyperCube() for univariate normal distribution which auto shuffles the results
 	for z in 1:Ddim
-		Res[:,z] = Res[Random.shuffle(1:end),z]
-		# NOTE: using ordinal ranking for unique ranks
-		Rnk0[:,z] = StatsBase.ordinalrank(Res[:,z])
+		Res[:,z] = LatinHyperCube( Distributions.Normal( D.μ[z], EachDimStd[z] ), N, P )
 	end
+
 	# compute R (Ddim * Ddim size), the correlation matrix (not cov) of the Res without correlation
-	local Rmat::Matrix{Float64} = StatsBase.cor(Res)
-	# do Cholesky decomposition on Rmat and get the lower triangular matrix
-	local Qmat::LinearAlgebra.LowerTriangular = LinearAlgebra.cholesky( Rmat ).L
-	# do Cholesky decomposition on D.Σ (target cor) and get the lower triangular matrix
-	local Pmat::LinearAlgebra.LowerTriangular = LinearAlgebra.cholesky( Distributions.cor( D ) ).L
+	# NOTE: when N*P is large, it is a good idea to use a eye(Ddim) to approximate R
+	local Rmat::Matrix{Float64} = (N * P) > 10000 ?  LinearAlgebra.diagm( 0 => ones(Ddim) )  :  StatsBase.cor(Res)
 	# get a new sample matrix Res1
-	local Res1 = Res * transpose( Pmat * inv(Qmat) )
-	# record ranks of each column of Res1
-	# then rearrange Res's columns (one by one) according to Res1's col-ranks
+	# NOTE: we do not specially declare Q,P but integrate them to the computing of X1
+	# 		the complier is smart enough to optimize it for least memeory & time costs
+	local Res1 = Res * transpose( LinearAlgebra.cholesky( Distributions.cor( D ) ).L * inv(LinearAlgebra.cholesky( Rmat ).L) )
+
+	# record ranks of each column of Res1, then rearrange Res's columns (one by one) according to Res1's col-ranks
 	for z in 1:Ddim
-		# record ranks
+		# first, record X1's rank values
 		Rnk1[:,z] = StatsBase.ordinalrank(Res1[:,z])
-		# rearrange from Res -> Res1, using Res's elements but in Res1's ranks
-		# NOTE: we use ordinal ranking, therfore, each rank value in a column is unique, therefore, just pick up the 1st element
-		for x in 1:(N * P)
-			Res1[x,z] = Res[ findall( y -> y == Rnk1[x,z], Rnk0[:,z] )[1] ,z]
-		end
+		# then, sort X0's column, the index is the rank value
+		Res[:,z] = sort( Res[:,z] )
+		# finally, rearrange indices according to Rnk1
+		Res[:,z] = Res[Rnk1[:,z], z]
 	end
+
 	# return (we have already shuffled columns)
-	return Res1::Matrix{Float64}
+	return Res::Matrix{Float64}
 end # end function LatinHyperCube
 # -----------------------
 
