@@ -26,7 +26,7 @@ If any question or issue, please email to:
 {tianhao.zhao@emory.edu}, Tianhao Zhao (GitHub: Clpr)
 """
 module StochInt
-
+    export randDiscrete, simu_BM, simu_OU, simu_MarkovChain, solve_SS_MarkovChain_FUCK
 
 # ----------
 """

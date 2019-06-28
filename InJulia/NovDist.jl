@@ -8,7 +8,8 @@ including:
 2. Distributions
 3. Generic methods
     1. invcdf(): inverse function of CDF, in fact, it is another name of Distributions.quantile()
-
+		1. invstdnorm(), invnorm(), invexpo()
+	2. rrank(): r-style ranking API, using ranking methosd in StatsBase module
 
 Depends on:
 1. Distributions: std lib
@@ -26,9 +27,9 @@ module NovDist
 	import StatsBase  # std lib
 	# -----------
 	# generic functions
-	export invcdf, LatinHyperCube, rrank
+	export LatinHyperCube, rrank
 	# quick functions
-	export invstdnorm, invnorm, invexpo
+	export invcdf, invstdnorm, invnorm, invexpo
 
 
 
